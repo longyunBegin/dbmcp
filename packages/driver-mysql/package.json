@@ -1,0 +1,12 @@
+{
+  "name": "@dbmcp/driver-mysql",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "dependencies": {
+    "@dbmcp/core": "0.1.0",
+    "mysql2": "^3.11.0"
+  }
+}

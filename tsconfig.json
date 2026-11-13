@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/driver-mysql" },
+    { "path": "packages/driver-redis" },
+    { "path": "packages/server" },
+    { "path": "apps/cli" }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "dbmcp-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only MySQL / Redis access for any MCP-capable coding agent, with zero project footprint.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/driver-mysql",
+    "packages/driver-redis",
+    "packages/server",
+    "apps/cli"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "clean": "tsc -b tsconfig.json --clean",
+    "cli": "node apps/cli/dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
