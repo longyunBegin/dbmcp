@@ -25,6 +25,7 @@ export interface InitOptions {
   schema?: string;
   keyPrefix?: string;
   nonInteractive?: boolean;
+  ssl?: boolean;
 }
 
 export async function initCommand(options: InitOptions): Promise<void> {
@@ -127,7 +128,8 @@ export async function initCommand(options: InitOptions): Promise<void> {
   }
   connection.policy = 'read';
   connection.production = Boolean(production);
-  if (password) connection.secretRef = `file:${name}`;
+  connection.secretRef = `file:${name}`;
+  if (options.ssl) connection.ssl = true;
 
   const config = {
     version: 1,

@@ -230,6 +230,12 @@ export class MysqlSession {
     return value;
   }
 
+  /** Current account grants, used by `dbmcp doctor` to reason about write access. */
+  async grants(): Promise<string[]> {
+    const [rows] = await this.connection.query<RowDataPacket[]>('SHOW GRANTS FOR CURRENT_USER()');
+    return rows.map((row) => String(Object.values(row as Record<string, unknown>)[0] ?? ''));
+  }
+
   /** Raw execution used by `dbmcp doctor` probes. Bypasses the SQL guard on purpose. */
   async exec(sql: string): Promise<unknown> {
     const [rows] = await this.connection.query({ sql, timeout: this.timeoutMs } as never);

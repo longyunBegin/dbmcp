@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "clean": "tsc -b tsconfig.json --clean",
+    "smoke": "node scripts/smoke.mjs",
     "cli": "node apps/cli/dist/index.js"
   },
   "devDependencies": {

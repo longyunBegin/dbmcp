@@ -157,26 +157,38 @@ async function probeMysql(name: string, target: LiveConnection, checks: Check[])
     detail: `${target.database ?? ''} @ ${target.host}:${target.port ?? 3306}`,
   });
 
-  let writable = false;
+  let tempWritable = false;
   try {
     await session.exec('CREATE TEMPORARY TABLE dbmcp_probe (id INT)');
-    writable = true;
+    tempWritable = true;
   } catch {
-    writable = false;
+    tempWritable = false;
   }
-  if (writable) {
+  if (tempWritable) {
     try {
       await session.exec('DROP TEMPORARY TABLE dbmcp_probe');
     } catch {
       // session-scoped anyway
     }
   }
+
+  let grants: string[] = [];
+  try {
+    grants = await session.grants();
+  } catch {
+    grants = [];
+  }
+  const writeGrants = detectWriteGrants(grants, target.database);
+  const writable = writeGrants.length > 0 || tempWritable;
+
   checks.push({
     name: `${name} 只读`,
     status: writable ? 'WARN' : 'PASS',
-    detail: writable
-      ? '账号仍具备写权限，只读目前只依赖会话只读 + 语句闸门'
-      : '写操作被数据库拒绝',
+    detail: writeGrants.length > 0
+      ? `账号具备写权限: ${describeGrants(writeGrants)}（建议改用只读账号）`
+      : tempWritable
+        ? '临时表创建成功，账号可能具备写权限'
+        : '仅只读权限',
   });
 
   const startedAt = Date.now();
@@ -250,4 +262,29 @@ function tryOpenProject(dir: string): ProjectContext | undefined {
   } catch {
     return undefined;
   }
+}
+
+const WRITE_PRIVILEGE = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|ALL PRIVILEGES)\b/i;
+
+function detectWriteGrants(grants: string[], database?: string): string[] {
+  return grants.filter((grant) => {
+    if (!WRITE_PRIVILEGE.test(grant)) return false;
+    if (!database) return true;
+    return (
+      grant.includes('*.*') ||
+      grant.includes(`\`${database}\``) ||
+      grant.includes(`${database}.*`)
+    );
+  });
+}
+
+function describeGrants(grants: string[]): string {
+  const verbs = new Set<string>();
+  for (const grant of grants) {
+    for (const verb of ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE']) {
+      if (new RegExp(`\\b${verb}\\b`, 'i').test(grant)) verbs.add(verb);
+    }
+    if (/\bALL PRIVILEGES\b/i.test(grant)) verbs.add('ALL PRIVILEGES');
+  }
+  return [...verbs].join(', ') || '未知';
 }

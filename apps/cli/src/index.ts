@@ -38,6 +38,7 @@ program
   .option('--schema <list>', '可见 schema，逗号分隔')
   .option('--key-prefix <list>', '允许访问的 Redis key 前缀，逗号分隔')
   .option('--production', '标记为生产库（默认拒绝访问）')
+  .option('--ssl', '启用 TLS 连接')
   .option('--non-interactive', '不进行任何交互输入')
   .action((options) => run(() => initCommand(options)));
 
