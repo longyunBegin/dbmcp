@@ -57,12 +57,11 @@ export class MysqlSession {
     const isMariaDb = /mariadb/i.test(serverVersion);
     const timeoutMs = target.policy.limits.timeoutMs;
 
-    if (target.readonlySession) {
-      try {
-        await connection.query('SET SESSION TRANSACTION READ ONLY');
-      } catch {
-        // older servers: rely on account grants only
-      }
+    // 硬规则：无论配置如何，会话一律设为只读事务
+    try {
+      await connection.query('SET SESSION TRANSACTION READ ONLY');
+    } catch {
+      // 老版本服务端不支持时，仍由账号权限与语句闸门兜底
     }
 
     try {

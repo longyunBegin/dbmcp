@@ -68,6 +68,18 @@ try {
   check('危险函数拒绝', !core.guardSql('select sleep(1)', allow, deny).ok);
   check('select into 变量拒绝', !core.guardSql('select a into @x from t', allow, deny).ok);
 
+  section('[2b] 硬规则（配置放宽也无效）');
+  const loose = ['select', 'insert', 'update', 'delete', 'drop', 'alter'];
+  check('配置写 insert 仍拒绝', !core.guardSql('insert into t values (1)', loose, deny).ok);
+  check('配置写 update 仍拒绝', !core.guardSql('update t set a=1', loose, deny).ok);
+  check('配置写 drop 仍拒绝', !core.guardSql('drop table t', loose, deny).ok);
+  check('配置放宽后 select 仍放行', core.guardSql('select 1', loose, deny).ok);
+  check('变量赋值 := 拒绝', !core.guardSql('select @x := 1', allow, deny).ok);
+  check('Redis SET 硬拒绝', !core.guardRedisCommand('set', ['set', 'get'], []).ok);
+  check('Redis FLUSHDB 硬拒绝', !core.guardRedisCommand('flushdb', ['flushdb'], []).ok);
+  check('Redis EVAL 硬拒绝', !core.guardRedisCommand('eval', ['eval'], []).ok);
+  check('Redis GET 放行', core.guardRedisCommand('get', ['get'], []).ok);
+
   section('[3] doctor 隔离检查');
   const doctor = spawnSync(process.execPath, [cli, 'doctor', '--dir', project], {
     encoding: 'utf8',

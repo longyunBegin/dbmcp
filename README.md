@@ -76,7 +76,7 @@ npm install
 npm run build
 ```
 
-可选：跑一遍离线自检（不需要任何数据库，20 项检查）
+可选：跑一遍离线自检（不需要任何数据库，29 项检查）
 
 ```bash
 npm run smoke
@@ -87,9 +87,10 @@ npm run smoke
 ```
 [1] init 绑定项目            4 PASS
 [2] SQL 只读拦截             8 PASS
+[2b] 硬规则（配置放宽也无效）   9 PASS
 [3] doctor 隔离检查          3 PASS
 [4] MCP 协议                 4 PASS
-20 PASS / 0 FAIL
+29 PASS / 0 FAIL
 ```
 
 ### 加一个命令别名（推荐）
@@ -473,6 +474,19 @@ policies:
 
 Redis 侧使用**白名单命令**模型，默认拒绝。显式排除
 `EVAL / FUNCTION / SCRIPT / CONFIG / DEBUG / MODULE / CLIENT / MONITOR / FLUSH* / KEYS / SET / DEL` 等。
+
+### 硬规则（配置放宽也无效）
+
+下面这些写在代码里，任何 YAML 配置都改不了：
+
+- 只允许 `SELECT / SHOW / DESCRIBE / EXPLAIN` 四种根动词——配置里写 `insert`、`update` 也不会生效
+- 连接建立后**无条件**执行 `SET SESSION TRANSACTION READ ONLY`
+- 多语句、`FOR UPDATE`、`LOCK IN SHARE MODE`、`INTO OUTFILE`、`INTO @var`、`:=` 赋值、`EXPLAIN ANALYZE` 一律拒绝
+- Redis 的写命令与危险命令（`SET / DEL / HSET / FLUSHDB / EVAL / CONFIG / DEBUG ...`）
+  即使被写进 `allow` 列表也会被拒绝
+
+配置层能做的只有"继续收紧"：比如把 `allow` 缩成 `[select]`，或者补充更多需要禁用的函数。
+**它没有任何办法放宽到可以写数据。**
 
 `dbmcp doctor` 会用**零写入**的方式验证这些是否真的生效：
 

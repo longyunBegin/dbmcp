@@ -10,6 +10,40 @@ const SIMPLE_READ = /^(show|desc|describe|explain)\b/i;
 const EXPLAIN_ANALYZE = /\bexplain\s+(analyze|analyse)\b/i;
 const INTO_FILE = /\binto\s+(outfile|dumpfile)\b/i;
 const LOCKING_READ = /\b(for\s+update|for\s+share|lock\s+in\s+share\s+mode)\b/i;
+const VAR_ASSIGN = /:=/;
+
+/**
+ * 代码级硬规则：任何配置都无法放行这四类之外的语句。
+ * 配置只能在此基础上继续收紧，不能放宽。
+ */
+export const HARD_ALLOWED_SQL_VERBS = ['select', 'show', 'describe', 'explain'];
+
+/**
+ * Redis 硬拒绝命令：即使配置把它们写进 allow 也不会执行。
+ */
+export const HARD_DENIED_REDIS_COMMANDS = new Set([
+  'set', 'setnx', 'setex', 'psetex', 'mset', 'msetnx', 'append', 'setrange', 'incr', 'decr',
+  'incrby', 'decrby', 'incrbyfloat', 'getset', 'getdel', 'getex',
+  'del', 'unlink', 'rename', 'renamenx', 'move', 'copy', 'restore', 'dump',
+  'hset', 'hsetnx', 'hmset', 'hdel', 'hincrby', 'hincrbyfloat',
+  'lpush', 'rpush', 'lpop', 'rpop', 'lset', 'linsert', 'lrem', 'ltrim', 'rpoplpush', 'lmove',
+  'sadd', 'srem', 'spop', 'smove', 'sinterstore', 'sunionstore', 'sdiffstore',
+  'zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore', 'zunionstore', 'zinterstore',
+  'expire', 'pexpire', 'expireat', 'pexpireat', 'persist', 'touch',
+  'flushall', 'flushdb', 'swapdb', 'select',
+  'eval', 'evalsha', 'eval_ro', 'evalsha_ro', 'function', 'fcall', 'fcall_ro', 'script',
+  'config', 'debug', 'module', 'client', 'monitor', 'shutdown', 'slaveof', 'replicaof',
+  'migrate', 'cluster', 'acl', 'latency', 'memory', 'save', 'bgsave', 'bgrewriteaof',
+  'keys', 'randomkey',
+]);
+
+/** 取配置与硬规则的并集，保证永远只有读能力。 */
+function normalizeAllow(allow: string[]): string[] {
+  const narrowed = (allow || [])
+    .map((verb) => verb.toLowerCase())
+    .filter((verb) => HARD_ALLOWED_SQL_VERBS.includes(verb));
+  return narrowed.length > 0 ? narrowed : [...HARD_ALLOWED_SQL_VERBS];
+}
 
 const parser = new Parser();
 
@@ -49,9 +83,14 @@ export function guardSql(sql: string, allow: string[], denyFunctions: string[]):
   const text = sql.trim();
   if (!text) return { ok: false, reason: '空语句' };
 
+  const allowed = normalizeAllow(allow);
+
   const single = text.replace(/;+\s*$/, '');
   if (single.includes(';')) {
     return { ok: false, reason: '不允许一次执行多条语句' };
+  }
+  if (VAR_ASSIGN.test(single)) {
+    return { ok: false, reason: '禁止在查询中赋值变量（:=）' };
   }
   if (EXPLAIN_ANALYZE.test(single)) {
     return { ok: false, reason: 'EXPLAIN ANALYZE 会真实执行语句，已禁用' };
@@ -66,7 +105,7 @@ export function guardSql(sql: string, allow: string[], denyFunctions: string[]):
   if (SIMPLE_READ.test(single)) {
     const raw = single.split(/\s+/)[0].toLowerCase();
     const verb = raw === 'desc' ? 'describe' : raw;
-    if (!allow.includes(verb) && !allow.includes(raw)) {
+    if (!allowed.includes(verb) && !allowed.includes(raw)) {
       return { ok: false, verb, reason: `语句类型 ${raw.toUpperCase()} 不在白名单` };
     }
     return { ok: true, verb };
@@ -89,11 +128,11 @@ export function guardSql(sql: string, allow: string[], denyFunctions: string[]):
 
   const node = statements[0] as Record<string, unknown> | null;
   const verb = String(node?.type || '').toLowerCase();
-  if (verb !== 'select' || !allow.includes(verb)) {
+  if (verb !== 'select' || !allowed.includes(verb)) {
     return {
       ok: false,
       verb,
-      reason: `根动词 ${verb ? verb.toUpperCase() : '未知'} 不在白名单（允许: ${allow.join('/')}）`,
+      reason: `根动词 ${verb ? verb.toUpperCase() : '未知'} 不在白名单（只允许: ${allowed.join('/')}）`,
     };
   }
   if (node?.locking) {
@@ -113,10 +152,13 @@ export function guardSql(sql: string, allow: string[], denyFunctions: string[]):
   return { ok: true, verb };
 }
 
-/** Redis command gate: explicit allow list, everything else denied. */
+/** Redis command gate: hard deny list first, then explicit allow list. */
 export function guardRedisCommand(command: string, allow: string[], deny: string[]): GuardResult {
   const verb = command.trim().toLowerCase();
   if (!verb) return { ok: false, reason: '空命令' };
+  if (HARD_DENIED_REDIS_COMMANDS.has(verb)) {
+    return { ok: false, verb, reason: `命令 ${verb.toUpperCase()} 属于写操作或危险命令，任何配置都不允许执行` };
+  }
   if (deny.includes(verb)) return { ok: false, verb, reason: `命令 ${verb.toUpperCase()} 被显式禁止` };
   if (!allow.includes(verb)) {
     return { ok: false, verb, reason: `命令 ${verb.toUpperCase()} 不在白名单（允许: ${allow.join('/')}）` };
