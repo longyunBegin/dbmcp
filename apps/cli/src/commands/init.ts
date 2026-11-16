@@ -26,6 +26,7 @@ export interface InitOptions {
   keyPrefix?: string;
   nonInteractive?: boolean;
   ssl?: boolean;
+  env?: string;
 }
 
 export async function initCommand(options: InitOptions): Promise<void> {
@@ -45,19 +46,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
   info(`配置写入  ${file}`);
   info('项目目录不会写入任何文件');
 
-  if (fs.existsSync(file)) {
-    if (options.nonInteractive) {
-      fail('该项目已绑定；如需修改请使用 dbmcp edit');
-      process.exitCode = 1;
-      return;
-    }
-    const overwrite = await confirm('该项目已存在绑定配置，覆盖？', false);
-    if (!overwrite) {
-      warn('已取消');
-      return;
-    }
-  }
-
   const ask = async (question: string, defaultValue = ''): Promise<string> => {
     if (options.nonInteractive) return defaultValue;
     return prompt(question, defaultValue);
@@ -71,6 +59,31 @@ export async function initCommand(options: InitOptions): Promise<void> {
   }
 
   const name = options.name || (await ask('连接名', engine === 'mysql' ? 'main' : 'cache'));
+
+  // 已有配置时按连接名合并，支持在同一项目里追加多个连接
+  const existing = fs.existsSync(file)
+    ? (YAML.parse(fs.readFileSync(file, 'utf8')) as {
+        version?: number;
+        defaultPolicy?: string;
+        policies?: Record<string, unknown>;
+        connections?: Record<string, unknown>;
+      } | null)
+    : null;
+  const existingConnections = existing?.connections ?? {};
+  const replacing = Boolean(existingConnections[name]);
+
+  if (replacing) {
+    if (options.nonInteractive) {
+      fail(`连接 "${name}" 已存在；如需修改请使用 dbmcp edit`);
+      process.exitCode = 1;
+      return;
+    }
+    const overwrite = await confirm(`连接 "${name}" 已存在，覆盖该连接？`, false);
+    if (!overwrite) {
+      warn('已取消');
+      return;
+    }
+  }
   let host = options.host;
   let port = options.port;
   let database = options.database;
@@ -128,24 +141,29 @@ export async function initCommand(options: InitOptions): Promise<void> {
   }
   connection.policy = 'read';
   connection.production = Boolean(production);
+  connection.environment =
+    options.env || (await ask('环境标识 (dev/test/uat/prod)', 'dev')) || undefined;
   connection.secretRef = `file:${name}`;
   if (options.ssl) connection.ssl = true;
 
   const config = {
-    version: 1,
+    version: existing?.version ?? 1,
     binding: {
       ...(binding.gitRemote ? { gitRemote: binding.gitRemote } : {}),
       path: binding.gitRoot || binding.root,
     },
-    defaultPolicy: 'read',
-    connections: { [name]: connection },
+    defaultPolicy: existing?.defaultPolicy ?? 'read',
+    ...(existing?.policies ? { policies: existing.policies } : {}),
+    connections: { ...existingConnections, [name]: connection },
   };
 
   ensureDir(projectDir(binding.slug));
   const header =
     '# dbmcp 项目配置\n# 该文件位于 ~/.dbmcp，不在你的项目目录内，也不会被提交到 git\n';
   fs.writeFileSync(file, header + YAML.stringify(config, { lineWidth: 0 }), 'utf8');
-  ok(`配置已写入 ${file}`);
+  ok(
+    `${replacing ? '已覆盖连接' : existing ? '已追加连接' : '配置已写入'} "${name}" → ${file}`,
+  );
 
   if (password) {
     storeSecret(binding.slug, name, password);

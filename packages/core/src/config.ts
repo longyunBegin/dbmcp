@@ -117,6 +117,8 @@ const ConnectionSchema = z.object({
   schemas: z.array(z.string()).default([]),
   keyPrefixes: z.array(z.string()).default([]),
   production: z.boolean().default(false),
+  /** 环境标识：dev / test / uat / prod，仅用于展示与提示 */
+  environment: z.string().optional(),
   policy: z.string().optional(),
   readonlySession: z.boolean().default(true),
   allowPlaintext: z.boolean().default(false),
@@ -154,6 +156,7 @@ export interface ResolvedConnection {
   schemas: string[];
   keyPrefixes: string[];
   production: boolean;
+  environment?: string;
   readonlySession: boolean;
   policyName: string;
   policy: Policy;
@@ -262,6 +265,7 @@ export function toResolvedConnection(
     schemas: conn.schemas,
     keyPrefixes: conn.keyPrefixes,
     production: conn.production,
+    environment: conn.environment,
     readonlySession: conn.readonlySession,
     policyName: conn.policy || 'read',
     policy,

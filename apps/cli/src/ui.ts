@@ -56,17 +56,36 @@ export async function promptHidden(question: string): Promise<string> {
   });
 }
 
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    const wide =
+      (code >= 0x1100 && code <= 0x115f) ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6);
+    width += wide ? 2 : 1;
+  }
+  return width;
+}
+
 export function table(rows: string[][]): void {
   if (rows.length === 0) return;
   const widths = rows[0].map((_, index) =>
-    Math.max(...rows.map((row) => (row[index] || '').length)),
+    Math.max(...rows.map((row) => displayWidth(row[index] || ''))),
   );
   for (const row of rows) {
-    console.log(
-      `  ${row
-        .map((cell, index) => (cell || '').padEnd(widths[index]))
-        .join('  ')
-        .trimEnd()}`,
-    );
+    const line = row
+      .map((cell, index) => {
+        const value = cell || '';
+        return value + ' '.repeat(Math.max(0, widths[index] - displayWidth(value)));
+      })
+      .join('  ')
+      .trimEnd();
+    console.log(`  ${line}`);
   }
 }

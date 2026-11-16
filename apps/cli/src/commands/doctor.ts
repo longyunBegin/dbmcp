@@ -154,24 +154,10 @@ async function probeMysql(name: string, target: LiveConnection, checks: Check[])
   checks.push({
     name: `${name} 连接`,
     status: 'PASS',
-    detail: `${target.database ?? ''} @ ${target.host}:${target.port ?? 3306}`,
+    detail: `[${environmentTag(target)}] ${target.database ?? ''} @ ${target.host}:${target.port ?? 3306}`,
   });
 
-  let tempWritable = false;
-  try {
-    await session.exec('CREATE TEMPORARY TABLE dbmcp_probe (id INT)');
-    tempWritable = true;
-  } catch {
-    tempWritable = false;
-  }
-  if (tempWritable) {
-    try {
-      await session.exec('DROP TEMPORARY TABLE dbmcp_probe');
-    } catch {
-      // session-scoped anyway
-    }
-  }
-
+  // 判断写权限只看 SHOW GRANTS，不建表、不写任何数据
   let grants: string[] = [];
   try {
     grants = await session.grants();
@@ -179,16 +165,15 @@ async function probeMysql(name: string, target: LiveConnection, checks: Check[])
     grants = [];
   }
   const writeGrants = detectWriteGrants(grants, target.database);
-  const writable = writeGrants.length > 0 || tempWritable;
 
   checks.push({
     name: `${name} 只读`,
-    status: writable ? 'WARN' : 'PASS',
+    status: writeGrants.length > 0 ? 'WARN' : grants.length > 0 ? 'PASS' : 'WARN',
     detail: writeGrants.length > 0
       ? `账号具备写权限: ${describeGrants(writeGrants)}（建议改用只读账号）`
-      : tempWritable
-        ? '临时表创建成功，账号可能具备写权限'
-        : '仅只读权限',
+      : grants.length > 0
+        ? '仅只读权限（依据 SHOW GRANTS）'
+        : '无法读取权限信息，未执行任何写操作',
   });
 
   const startedAt = Date.now();
@@ -231,26 +216,25 @@ async function probeRedis(name: string, target: LiveConnection, checks: Check[])
     return;
   }
 
-  let writable = false;
+  // 用 ACL DRYRUN 判断写权限，不写入任何 key
+  let writable: boolean | undefined;
   try {
-    await session.raw('SET', 'dbmcp:probe', String(Date.now()));
-    writable = true;
+    const who = String(await session.raw('ACL', 'WHOAMI'));
+    const verdict = await session.raw('ACL', 'DRYRUN', who, 'SET', 'dbmcp:probe', '1');
+    writable = String(verdict).toUpperCase() === 'OK';
   } catch {
-    writable = false;
+    writable = undefined;
   }
-  if (writable) {
-    try {
-      await session.raw('DEL', 'dbmcp:probe');
-    } catch {
-      // ignore cleanup failure
-    }
-  }
+
   checks.push({
     name: `${name} 只读`,
-    status: writable ? 'WARN' : 'PASS',
-    detail: writable
-      ? '账号仍可写入，建议改用 ACL 只读账号（-@all +@read +@connection）'
-      : '写命令被拒绝',
+    status: writable === true ? 'WARN' : writable === false ? 'PASS' : 'WARN',
+    detail:
+      writable === true
+        ? '账号允许 SET 命令，建议改用 ACL 只读账号（-@all +@read +@connection）'
+        : writable === false
+          ? '写命令被 ACL 拒绝'
+          : '服务端不支持 ACL DRYRUN（Redis < 7 或 ACL 受限），未执行任何写操作',
   });
 
   await session.close();
@@ -266,14 +250,21 @@ function tryOpenProject(dir: string): ProjectContext | undefined {
 
 const WRITE_PRIVILEGE = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|ALL PRIVILEGES)\b/i;
 
+function environmentTag(connection: LiveConnection): string {
+  if (connection.environment) return connection.environment;
+  return connection.production ? 'prod' : '未标注';
+}
+
 function detectWriteGrants(grants: string[], database?: string): string[] {
   return grants.filter((grant) => {
-    if (!WRITE_PRIVILEGE.test(grant)) return false;
+    // MySQL 会把库名里的下划线转义成 \_，比较前先还原
+    const normalized = grant.replace(/\\/g, '');
+    if (!WRITE_PRIVILEGE.test(normalized)) return false;
     if (!database) return true;
     return (
-      grant.includes('*.*') ||
-      grant.includes(`\`${database}\``) ||
-      grant.includes(`${database}.*`)
+      normalized.includes('*.*') ||
+      normalized.includes(`\`${database}\``) ||
+      normalized.includes(`${database}.*`)
     );
   });
 }

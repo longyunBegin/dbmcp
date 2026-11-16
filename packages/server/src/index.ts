@@ -246,6 +246,7 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
         return {
           name,
           engine: conn.engine,
+          environment: conn.environment ?? (conn.production ? 'prod' : null),
           target,
           database: conn.database ?? null,
           schemaScope: conn.schemas.length > 0 ? conn.schemas : 'default',

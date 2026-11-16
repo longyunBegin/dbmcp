@@ -28,8 +28,10 @@ export class RedisSession {
       ...(target.ssl === true ? { tls: {} } : {}),
     };
 
+    // url 优先，但密码单独存放时（secretRef）需要覆盖 url 里的凭据
+    const withPassword = target.password ? { password: target.password } : {};
     const client = target.url
-      ? new Redis(target.url, options)
+      ? new Redis(target.url, { ...options, ...withPassword })
       : new Redis({
           host: target.host,
           port: target.port ?? 6379,

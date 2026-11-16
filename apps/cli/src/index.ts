@@ -4,6 +4,8 @@ import { doctorCommand } from './commands/doctor';
 import { editCommand } from './commands/edit';
 import { initCommand } from './commands/init';
 import { installCommand, installStatusCommand, uninstallCommand } from './commands/install';
+import { listCommand } from './commands/list';
+import { queryCommand } from './commands/query';
 import { secretListCommand, secretRemoveCommand, secretSetCommand } from './commands/secret';
 import { serveCommand } from './commands/serve';
 
@@ -39,6 +41,7 @@ program
   .option('--key-prefix <list>', '允许访问的 Redis key 前缀，逗号分隔')
   .option('--production', '标记为生产库（默认拒绝访问）')
   .option('--ssl', '启用 TLS 连接')
+  .option('--env <env>', '环境标识：dev / test / uat / prod')
   .option('--non-interactive', '不进行任何交互输入')
   .action((options) => run(() => initCommand(options)));
 
@@ -90,6 +93,22 @@ program
   .command('uninstall')
   .description('从 IDE 用户级配置中移除 dbmcp 条目')
   .action(() => run(() => Promise.resolve(uninstallCommand())));
+
+program
+  .command('list')
+  .description('按环境分组列出当前项目的所有连接')
+  .option('-d, --dir <dir>', '目标项目目录')
+  .option('-e, --env <env>', '只显示指定环境，例如 dev / test')
+  .action((options) => run(() => Promise.resolve(listCommand(options))));
+
+program
+  .command('query <sql>')
+  .description('执行一条只读 SQL（供命令行排查，同样经过语句闸门）')
+  .option('-d, --dir <dir>', '目标项目目录')
+  .option('-c, --connection <name>', '连接名')
+  .option('--max-rows <n>', '返回行数上限')
+  .option('--allow-prod', '允许访问标记为生产库的连接')
+  .action((sql, options) => run(() => queryCommand(sql, options)));
 
 program
   .command('doctor')
